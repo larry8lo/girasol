@@ -1,0 +1,610 @@
+/**
+ * JavaCC file
+ */
+ 
+options {
+  IGNORE_CASE = false;
+  STATIC = false;
+}
+PARSER_BEGIN(Parser)
+package girasol.parser;
+
+import java.util.List;
+import java.util.ArrayList;
+import java.util.LinkedList;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.PrintWriter;
+import java.io.OutputStreamWriter;
+
+import girasol.dom.Document;
+import girasol.dom.Expression;
+import girasol.dom.StringLiteral;
+import girasol.dom.NumberLiteral;
+import girasol.dom.Node;
+import girasol.dom.Reference;
+import girasol.dom.Variable;
+import girasol.dom.MemberReference;
+import girasol.dom.PageReference;
+import girasol.dom.Text;
+import girasol.dom.Array;
+import girasol.dom.FunctionCall;
+import girasol.dom.Foreach;
+import girasol.dom.While;
+import girasol.dom.Echo;
+import girasol.dom.VariableDeclaration;
+import girasol.dom.Assignment;
+import girasol.dom.Page;
+import girasol.dom.FunctionDefinition;
+import girasol.dom.Return;
+import girasol.dom.Include;
+import girasol.dom.Content;
+import girasol.dom.Switch;
+import girasol.dom.BooleanLiteral;
+import girasol.dom.NullLiteral;
+import girasol.dom.ArrayReference;
+import girasol.dom.Instantiation;
+import girasol.dom.math.Add;
+import girasol.dom.math.Subtract;
+import girasol.dom.math.Multiply;
+import girasol.dom.math.Divide;
+import girasol.dom.math.Negate;
+import girasol.runtime.Output;
+import girasol.runtime.Workspace;
+
+public class Parser {
+
+	static String parseStringLiteral(String strLit) {
+		strLit = strLit.substring(0, strLit.length() - 1).substring(1);
+		StringBuffer buf = new StringBuffer();
+		int offset = 0;
+		while (offset < strLit.length()) {
+			int dq = strLit.indexOf("\\", offset);
+			if (dq == -1) {
+				buf.append(strLit.substring(offset));
+				break;
+			} else {
+				buf.append(strLit.substring(offset, dq));
+				char ch = strLit.charAt(dq + 1);
+				if (ch == '\\') {
+					buf.append('\\');
+				} else if (ch == 't') {
+					buf.append('\t');
+				} else if (ch == 'n') {
+					buf.append('\n');
+				} else if (ch == 'r') {
+					buf.append('\r');
+				} else {
+					buf.append(ch);
+				}
+				offset = dq + 2;
+			}
+		}
+		return buf.toString();
+	}
+
+}
+PARSER_END(Parser)
+
+<TEXT_STATE> SKIP :
+{
+ 	" "
+|	"\t"
+|	"\r"
+| 	"\n"
+}
+<TEXT_STATE> TOKEN :
+{
+  	< SCRIPT_START: "<#" > : DEFAULT
+| 	< SCRIPT_ECHO: "<#=" > : DEFAULT
+| 	< TEXT: (~["<"] | "<" ~["#"])+ >
+}
+<DEFAULT> SKIP :
+{
+ 	" "
+|	"\t"
+|	"\r"
+|	"\n"
+}
+<DEFAULT> SKIP:
+{
+	< COMMENT: "//" (~["\n"])+ "\n" >
+}
+<DEFAULT> TOKEN :
+{
+  	< SCRIPT_END: "#>" > : TEXT_STATE
+|	< OPEN_PAREN: "(" >
+|	< CLOSE_PAREN: ")" >
+|	< OPEN_BRACE: "{" >
+|	< CLOSE_BRACE: "}" >
+|	< OPEN_BRACKET: "[" >
+|	< CLOSE_BRACKET: "]" >
+|	< COMMA: "," >
+|	< PERIOD: "." >
+| 	< PAGE: "page" >
+| 	< TEMPLATE: "template" >
+|	< EXTENSION: "ext" >
+| 	< ATTR: "attr" >
+| 	< VAR: "var" >
+| 	< SET: "set" >
+| 	< FOREACH: "foreach" >
+| 	< WHILE: "while" >
+| 	< IF: "if" >
+| 	< THEN: "then" >
+| 	< ELSE: "else" >
+| 	< ELSEIF: "elseif" >
+| 	< FUNCTION: "function" >
+| 	< IN: "in" >
+|	< END: "end" >
+|	< INCLUDE: "include" >
+|	< CONTENT: "content" >
+|	< FORMAT: "format" >
+|	< RETURN: "return" >
+|	< TRUE: "true" >
+|	< FALSE: "false" >
+|	< NEW: "new" >
+}
+<DEFAULT> TOKEN : /* OPERATORS */
+{
+	< PLUS: "+" >
+|	< MINUS: "-" >
+|	< MULTIPLY: "*" >
+|	< DIVIDE: "/" >
+| 	< EQUAL: "=" >
+}
+<DEFAULT> TOKEN :
+{
+    < NUMBER_LITERAL: ( <DIGIT> )+ >
+|   < #DIGIT: ["0" - "9"] >
+|	< #LETTER: ["$","A"-"Z","_","a"-"z"] >
+| 	< IDENTIFIER: <LETTER> (<LETTER> | <DIGIT>)* >
+|   < PAGE_NAME: "@" <IDENTIFIER> >
+|	< THIS_REF: "@" >
+|	< STRING_LITERAL: "\"" ( ~["\"","\\","\n","\r"] | "\\" ( ["n","t","b","r","f","\\","\'","\""] | ["0"-"7"] (["0"-"7"])?  | ["0"-"3"] ["0"-"7"] ["0"-"7"] | ( ["\n","\r"] | "\r\n")))* "\"" >
+}
+void start(Document doc) :
+{
+	token_source.SwitchTo(TEXT_STATE);
+	LinkedList<Node> stack = new LinkedList<Node>();
+	stack.add(doc.getBody());
+}
+{
+	(
+		<SCRIPT_ECHO> echo(doc, stack) <SCRIPT_END>
+	|	<SCRIPT_START> code(doc, stack) <SCRIPT_END>
+	| 	text(doc, stack)
+	)*
+}
+void code(Document doc, LinkedList<Node> stack) :
+{
+}
+{
+	(statement(doc, stack))*
+}
+void echo(Document doc, LinkedList<Node> stack) :
+{
+	Expression e;
+}
+{
+	e = expression(doc, stack)
+	{
+		Echo echo = new Echo(e);
+		stack.peek().addChild(echo);
+	}
+}
+void code_or_text(Document doc, LinkedList<Node> stack) :
+{
+}
+{
+	(
+		statement(doc, stack) 
+	| 	<SCRIPT_END> (text(doc, stack) | <SCRIPT_ECHO> echo(doc, stack) <SCRIPT_END>)* <SCRIPT_START> 
+	)*
+}
+void statement(Document doc, LinkedList<Node> stack) : 
+{ 
+	Token t1 = null, t2 = null; 
+	Expression e = null, e1 = null; 
+	List<Expression> l = null;
+}
+{
+	<PAGE> t1 = <PAGE_NAME> 
+	{ 
+		doc.setName(t1.toString().substring(1)); 
+	}
+|	<TEMPLATE> t2 = <PAGE_NAME> 
+	{
+		doc.setTemplate(t2.toString().substring(1));
+	}
+|	<EXTENSION> t1 = <STRING_LITERAL>
+	{
+		String ext = parseStringLiteral(t1.toString());
+		doc.setExtension(ext);
+	}	
+|  	<ATTR> t1 = <IDENTIFIER> <EQUAL> e = expression(doc, stack)
+  	{
+  	  	doc.setProperty(t1.toString(), e);
+   	}
+|	var_decl(doc, stack)
+|	<SET> e = lhs(doc, stack) <EQUAL> e1 = expression(doc, stack)
+	{
+		stack.peek().addChild(new Assignment((Reference) e, e1));
+	}
+|	<FOREACH> t1 = <IDENTIFIER> <IN> e = expression(doc, stack)
+	{
+		Foreach foreach = new Foreach(new Variable(t1.toString()), e);
+		stack.peek().addChild(foreach);
+		stack.push(foreach);
+	}
+	code_or_text(doc, stack) <END>
+	{
+		stack.pop();
+	}
+|	<WHILE> e = expression(doc, stack)
+	{
+		While whileStmt = new While(e);
+		stack.peek().addChild(whileStmt);
+		stack.push(whileStmt);
+	}
+	code_or_text(doc, stack) <END>
+	{
+		stack.pop();
+	}
+|	<IF> e = expression(doc, stack) <THEN> 
+	{ 
+		Switch switchStmt = new Switch(); 
+		stack.peek().addChild(switchStmt);
+		Node n = new Node();
+		switchStmt.addCase(e, n);
+		stack.push(n);
+	}
+	code_or_text(doc, stack) 
+	{
+		stack.pop();
+	}
+	(
+		<ELSEIF> e = expression(doc, stack) 
+		{
+			n = new Node();
+			switchStmt.addCase(e, n);
+			stack.push(n);
+		}
+		<THEN> code_or_text(doc, stack) 
+		{
+			stack.pop();
+		}
+	)*
+	( 
+		<ELSE> 
+		{ 
+			n = new Node();
+			switchStmt.setElseBlock(n);
+			stack.push(n);
+		}
+		code_or_text(doc, stack)
+		{
+			stack.pop();
+		}
+	)?
+	<END>
+|	function(doc, stack)
+|	e = var_or_func_call(doc, stack)
+	{
+		stack.peek().addChild(e);
+	}
+|	<RETURN> e = expression(doc, stack) 
+	{
+		stack.peek().addChild(new Return(e));
+	}
+|	<INCLUDE> e = expression(doc, stack)
+	{
+		stack.peek().addChild(new Include(e));
+	}
+|	<CONTENT>
+	{
+		stack.peek().addChild(new Content());
+	}
+}
+void text(Document doc, LinkedList<Node> stack) :
+{
+	Token t;
+}
+{
+	t = <TEXT>
+  	{
+		stack.peek().addChild(new Text(t.toString()));
+  	}
+}
+Expression expression(Document doc, LinkedList<Node> stack) :
+{
+	Token t;
+  	Expression e;
+  	List<Expression> l = null;
+}
+{
+	t = <STRING_LITERAL> 
+	{
+		String s = parseStringLiteral(t.toString());
+		return new StringLiteral(s);
+	}
+|	<TRUE>
+	{
+		return new BooleanLiteral(true);
+	}
+|	<FALSE>
+	{
+		return new BooleanLiteral(false);
+	}
+|	e = sum(doc, stack) { return e; }
+|	<OPEN_BRACE> (l = expr_list(doc, stack))? <CLOSE_BRACE>
+	{
+		Array a = new Array();
+		if (l != null) {
+			a.addAll(l);
+		}
+		return a;
+	}
+|	<NEW> t = <IDENTIFIER> <OPEN_PAREN> (l = expr_list(doc, stack))? <CLOSE_PAREN>
+	{
+		return new Instantiation(t.toString(), l != null ? l : new ArrayList<Expression>());
+	}
+|	e = anon_function(doc, stack)
+	{
+		return e;
+	}
+}
+List<Expression> expr_list(Document doc, LinkedList<Node> stack) : { Expression e; List<Expression> l = new ArrayList<Expression>(); }
+{
+	e = expression(doc, stack)
+	{
+	  l.add(e);
+	}
+	(<COMMA> e = expression(doc, stack)
+	{
+		l.add(e);
+	})*
+	{
+		return l;
+	}
+}
+void var_decl(Document doc, LinkedList<Node> stack) :
+{
+	Token t1 = null;
+	Expression e = null;
+}
+{
+	<VAR> t1 = <IDENTIFIER> (<EQUAL> e = expression(doc, stack))?
+	{
+		stack.peek().addChild(new VariableDeclaration(t1.toString(), e != null ? e : NullLiteral.instance));
+	}
+}
+Reference init_var(Document doc, LinkedList<Node> stack, Expression parent) :
+{
+	Token t;
+	Expression e;
+	Reference v;
+}
+{
+	t = <IDENTIFIER>
+	{
+		v = parent == null ? new Variable(t.toString()) : new MemberReference(parent, t.toString());
+	}
+	(<OPEN_BRACKET> e = expression(doc, stack) <CLOSE_BRACKET>
+	{
+		v = new ArrayReference(v, e);
+	}
+	)*
+	{
+		return v;
+	}
+}
+Reference var(Document doc, LinkedList<Node> stack, Expression parent) :
+{
+	Token t;
+	Expression e;
+	Reference v;
+}
+{
+	t = <IDENTIFIER>
+	{
+		v = parent == null ? new Variable(t.toString()) : new MemberReference(parent, t.toString());
+	}
+	(<OPEN_BRACKET> e = expression(doc, stack) <CLOSE_BRACKET>
+	{
+		v = new ArrayReference(v, e);
+	}
+	)*
+	{
+		return v;
+	}
+}
+Expression lhs(Document doc, LinkedList<Node> stack) :
+{
+	Token t;
+	Expression e = null;
+	List<Expression> l;
+}
+{
+	(
+		(
+			t = <PAGE_NAME> { e = new PageReference(t.toString().substring(1)); }
+		| 	<THIS_REF> { e = new PageReference(""); }
+		)
+		<PERIOD>
+	)?
+	e = var(doc, stack, e)
+	(
+		(
+			<OPEN_PAREN> l = expr_list(doc, stack) <CLOSE_PAREN>
+			{
+				Expression args[] = new Expression[l.size()];
+				l.toArray(args);
+				e = new FunctionCall(e, args);
+			}
+		)?
+		<PERIOD> e = var(doc, stack, e) 
+	)*
+	{
+		return e;
+	}
+}
+Expression var_or_func_call(Document doc, LinkedList<Node> stack) :
+{
+	Token t;
+	Expression e;
+	List<Expression> l = null;
+}
+{
+	(
+		e = var(doc, stack, null) 
+	| 	t = <PAGE_NAME> { e = new PageReference(t.toString().substring(1)); }
+	| 	<THIS_REF> { e = new PageReference(""); }
+	)
+	(
+		<OPEN_PAREN> (l = expr_list(doc, stack))? <CLOSE_PAREN>
+		{
+			Expression args[];
+			if (l != null) {
+				args = new Expression[l.size()];
+				l.toArray(args);
+			} else {
+				args = new Expression[0];
+			}
+			e = new FunctionCall(e, args);
+			l = null;
+		}
+	)?
+	(
+		<PERIOD> e = var(doc, stack, e) 
+		(
+			<OPEN_PAREN> (l = expr_list(doc, stack))? <CLOSE_PAREN>
+			{
+				Expression args[];
+				if (l != null) {
+					args = new Expression[l.size()];
+					l.toArray(args);
+				} else {
+					args = new Expression[0];
+				}
+				e = new FunctionCall(e, args);
+				l = null;
+			}
+		)?
+	)*
+	{
+		return e;
+	}
+}
+void function(Document doc, LinkedList<Node> stack) : 
+{ 
+	Token t; 
+	String fn = null; 
+	List<String> params = new ArrayList<String>(); 
+}
+{
+	<FUNCTION>
+	t = <IDENTIFIER>
+	{
+	  	fn = t.toString();
+	}
+	<OPEN_PAREN>
+	(t = <IDENTIFIER>
+	{
+		params.add(t.toString());
+	}
+	(<COMMA> t = <IDENTIFIER>
+	{
+		params.add(t.toString());
+	}
+	)*)?
+	<CLOSE_PAREN>
+	{
+		String args[] = new String[params.size()];
+		params.toArray(args);
+		FunctionDefinition fd = new FunctionDefinition(fn, args);
+		//stack.peek().addChild(fd);
+		doc.setProperty(fn, fd);
+		stack.push(fd);
+	}
+	code(doc, stack)
+	<END>
+	{
+		stack.pop();
+	}
+}
+FunctionDefinition anon_function(Document doc, LinkedList<Node> stack) : 
+{ 
+	Token t; 
+	List<String> params = new ArrayList<String>(); 
+	FunctionDefinition fd;
+}
+{
+	<FUNCTION>
+	<OPEN_PAREN>
+	(t = <IDENTIFIER>
+	{
+		params.add(t.toString());
+	}
+	(<COMMA> t = <IDENTIFIER>
+	{
+		params.add(t.toString());
+	}
+	)*)?
+	<CLOSE_PAREN>
+	{
+		String args[] = new String[params.size()];
+		params.toArray(args);
+		fd = new FunctionDefinition(null, args);
+		stack.peek().addChild(fd);
+		stack.push(fd);
+	}
+	code(doc, stack)
+	<END>
+	{
+		stack.pop();
+		return fd;
+	}
+}
+Expression sum(Document doc, LinkedList<Node> stack) : { Expression e, e1; Token t; }
+{
+  	e = term(doc, stack) (( t = <PLUS> | t = <MINUS> ) e1 = term(doc, stack) 
+  	{ 
+  		if ("+".equals(t.toString())) { 
+  			e = new Add(e, e1); 
+  		} else { 
+  			e = new Subtract(e, e1); 
+  		} 
+  	}
+  	)*
+  	{
+  		return e;
+  	}
+}
+Expression term(Document doc, LinkedList<Node> stack) : { Expression e, e1; Token t; }
+{
+  	e = unary(doc, stack) (( t = <MULTIPLY> | t = <DIVIDE> ) e1 = unary(doc, stack)
+  	{ 
+  		if ("*".equals(t.toString())) { 
+  			e = new Multiply(e, e1); 
+  		} else { 
+  			e = new Divide(e, e1); 
+  		} 
+  	}
+  	)*
+  	{
+  		return e;
+  	}
+}
+Expression unary(Document doc, LinkedList<Node> stack) : { Expression e; }
+{
+  	<MINUS> e = element(doc, stack) { return new Negate(e); }
+| 	e = element(doc, stack) { return e; } 
+}
+Expression element(Document doc, LinkedList<Node> stack) : { Token t; Expression e; }
+{
+	t = <NUMBER_LITERAL> {
+		return new NumberLiteral(Integer.parseInt(t.toString()));
+	}
+|	e = var_or_func_call(doc, stack) { return e; }
+|	<OPEN_PAREN> e = sum(doc, stack) <CLOSE_PAREN> { return e; }
+}
